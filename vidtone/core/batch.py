@@ -123,6 +123,8 @@ def run_batch(
         "folder": str(folder_path),
         "output_dir": str(output_root),
         "mode": "mock" if not config.can_call_fireworks else "fireworks",
+        "model": config.fireworks_model,
+        "vision_model": config.fireworks_vision_model,
         "total": len(videos),
         "succeeded": 0,
         "failed": 0,

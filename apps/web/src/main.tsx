@@ -3,6 +3,14 @@ import ReactDOM from 'react-dom/client';
 import { Download, FileVideo, Loader2, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
 import './styles.css';
 
+const DEFAULT_MODEL = 'accounts/fireworks/models/gpt-oss-120b';
+
+const MODEL_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'accounts/fireworks/models/gpt-oss-120b', label: 'gpt-oss-120b (verified)' },
+  { value: 'accounts/fireworks/models/gpt-oss-20b', label: 'gpt-oss-20b' },
+  { value: 'custom', label: 'Custom Fireworks slug…' },
+];
+
 type CaptionItem = {
   text: string;
   source: string;
@@ -16,6 +24,8 @@ type CaptionItem = {
 type CaptionResult = {
   project: string;
   mode: string;
+  model?: string;
+  vision_model?: string | null;
   request_id?: string;
   video: {
     filename: string;
@@ -47,9 +57,13 @@ function ScoreBadge({ label, value }: { label: string; value: number }) {
 function App() {
   const [file, setFile] = React.useState<File | null>(null);
   const [useMock, setUseMock] = React.useState(false);
+  const [modelPreset, setModelPreset] = React.useState<string>(DEFAULT_MODEL);
+  const [customModel, setCustomModel] = React.useState<string>('');
   const [isRunning, setIsRunning] = React.useState(false);
   const [result, setResult] = React.useState<CaptionResult | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  const selectedModel = modelPreset === 'custom' ? customModel.trim() : modelPreset;
 
   async function runCaption() {
     if (!file) {
@@ -60,6 +74,9 @@ function App() {
     const formData = new FormData();
     formData.append('video', file);
     formData.append('use_mock', String(useMock));
+    if (selectedModel) {
+      formData.append('model', selectedModel);
+    }
 
     setIsRunning(true);
     setError(null);
@@ -106,9 +123,35 @@ function App() {
 
         {file && <video className="preview" src={URL.createObjectURL(file)} controls />}
 
+        <div className="model-selector">
+          <label htmlFor="model-preset">Model</label>
+          <select
+            id="model-preset"
+            value={modelPreset}
+            onChange={(event) => setModelPreset(event.target.value)}
+            disabled={isRunning}
+          >
+            {MODEL_PRESETS.map((preset) => (
+              <option key={preset.value} value={preset.value}>{preset.label}</option>
+            ))}
+          </select>
+          {modelPreset === 'custom' && (
+            <input
+              type="text"
+              placeholder="accounts/fireworks/models/..."
+              value={customModel}
+              onChange={(event) => setCustomModel(event.target.value)}
+              disabled={isRunning}
+              spellCheck={false}
+              autoComplete="off"
+            />
+          )}
+          <p className="hint">Model access depends on your Fireworks account.</p>
+        </div>
+
         <div className="controls">
           <label className="toggle">
-            <input type="checkbox" checked={useMock} onChange={(event) => setUseMock(event.target.checked)} />
+            <input type="checkbox" checked={useMock} onChange={(event) => setUseMock(event.target.checked)} disabled={isRunning} />
             Mock mode
           </label>
           <button className="primary" onClick={runCaption} disabled={!file || isRunning}>
@@ -126,7 +169,7 @@ function App() {
             <div>
               <div className="eyebrow"><ShieldCheck size={16} /> Judge Agent result</div>
               <h2>{result.video.filename}</h2>
-              <p>Duration: {result.video.duration_seconds ?? 'unknown'}s · Mode: {result.mode}</p>
+              <p>Duration: {result.video.duration_seconds ?? 'unknown'}s · Mode: {result.mode}{result.model ? ` · Model: ${result.model}` : ''}</p>
             </div>
             <div className="export-actions">
               {result.exports?.json && <a href={`/api/export?path=${encodeURIComponent(result.exports.json)}`}><Download size={16} /> JSON</a>}

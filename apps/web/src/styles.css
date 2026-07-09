@@ -126,6 +126,57 @@ h2 {
   flex-wrap: wrap;
 }
 
+.model-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.model-selector label {
+  color: #cbd5e1;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.model-selector select,
+.model-selector input[type="text"] {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.85);
+  color: #e2e8f0;
+  padding: 8px 10px;
+  font-size: 14px;
+  min-height: 36px;
+}
+
+.model-selector select {
+  min-width: 220px;
+}
+
+.model-selector input[type="text"] {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.model-selector select:disabled,
+.model-selector input[type="text"]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.model-selector .hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 .toggle {
   display: inline-flex;
   gap: 10px;

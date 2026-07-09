@@ -11,6 +11,8 @@ from typing import Any
 from vidtone.core.batch import run_batch
 from vidtone.core.config import AppConfig
 from vidtone.core.pipeline import VidTonePipeline
+from vidtone.core.segments import run_segmented_video
+from vidtone.processing.video_processor import read_video_metadata
 
 
 def _apply_common_env(args: argparse.Namespace) -> None:
@@ -31,6 +33,20 @@ def _apply_common_env(args: argparse.Namespace) -> None:
 
 
 def _summary(result: dict[str, Any]) -> dict[str, Any]:
+    # Segmented runs produce a different top-level shape (see
+    # vidtone/core/segments.py::run_segmented_video). Detect it and render a
+    # summary that actually surfaces segment counts instead of empty fields.
+    if result.get("segmented"):
+        return {
+            "segmented": True,
+            "source_video": result.get("source_video"),
+            "mode": result.get("mode"),
+            "model": result.get("model"),
+            "total": result.get("total"),
+            "succeeded": result.get("succeeded"),
+            "failed": result.get("failed"),
+            "exports": result.get("exports", {}),
+        }
     captions = result.get("captions", {})
     return {
         "mode": result.get("mode"),
@@ -52,7 +68,48 @@ def run_command(args: argparse.Namespace) -> int:
     if not video_path.exists():
         print(f"Video not found: {video_path}", file=sys.stderr)
         return 2
-    result = VidTonePipeline(AppConfig.from_env()).run(video_path)
+
+    config = AppConfig.from_env()
+
+    # Optional long-video auto-segmentation (P1). We only segment when the
+    # user explicitly passes --auto-segment AND the source video is longer
+    # than the configured max_video_seconds. Short videos always fall back
+    # to the verified single-pipeline path to avoid destabilizing Track 2.
+    if getattr(args, "auto_segment", False):
+        try:
+            metadata = read_video_metadata(video_path)
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        duration = metadata.duration_seconds
+
+        if duration is not None and duration > config.max_video_seconds:
+            segment_seconds = min(max(30, int(args.segment_seconds)), 120)
+            max_workers = min(max(1, int(args.max_workers)), 3)
+
+            base_output = Path(args.output_dir) if args.output_dir else Path(
+                "outputs/long-video"
+            )
+            stem = video_path.stem or "vidtone_long_video"
+            segmented_output = base_output / stem
+
+            result = run_segmented_video(
+                config,
+                video_path,
+                segmented_output,
+                segment_seconds=segment_seconds,
+                max_workers=max_workers,
+            )
+            _print_result(result, args.full_json)
+            total = int(result.get("total", 0) or 0)
+            succeeded = int(result.get("succeeded", 0) or 0)
+            # Non-zero exit only when we tried to process segments and every
+            # one failed, matching batch_command's semantics.
+            if total > 0 and succeeded == 0:
+                return 1
+            return 0
+
+    result = VidTonePipeline(config).run(video_path)
     _print_result(result, args.full_json)
     return 0
 
@@ -175,6 +232,28 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--mock", action="store_true")
     run_parser.add_argument("--real", action="store_true")
     run_parser.add_argument("--full-json", action="store_true")
+    # P1 auto-segmentation opt-in (defaults off — Track 2 short-video flow
+    # remains the verified default path).
+    run_parser.add_argument(
+        "--auto-segment",
+        action="store_true",
+        help=(
+            "Split videos longer than MAX_VIDEO_SECONDS into chunks and "
+            "run the pipeline on each chunk."
+        ),
+    )
+    run_parser.add_argument(
+        "--segment-seconds",
+        type=int,
+        default=60,
+        help="Chunk length in seconds when --auto-segment is set (clamped to 30-120).",
+    )
+    run_parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=2,
+        help="Concurrent segment workers when --auto-segment is set (clamped to 1-3).",
+    )
     run_parser.set_defaults(func=run_command)
 
     batch_parser = subparsers.add_parser(

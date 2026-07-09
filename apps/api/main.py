@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 
 from vidtone.core.config import AppConfig
 from vidtone.core.pipeline import VidTonePipeline
+from vidtone.core.segments import run_segmented_video
+from vidtone.processing.video_processor import read_video_metadata
 
 API_PORT = 8710
 WEB_PORT = 5179
@@ -47,11 +49,17 @@ def _safe_filename(filename: str | None) -> str:
     return cleaned or "upload.mp4"
 
 
-def _build_request_config(use_mock: bool) -> AppConfig:
+def _build_request_config(use_mock: bool, model: str | None = None) -> AppConfig:
     base_config = AppConfig.from_env()
-    if use_mock:
-        return replace(base_config, use_mock=True)
-    return replace(base_config, use_mock=False)
+    # Only override the Fireworks model when the caller passed a non-empty
+    # value. Empty string / whitespace / None all fall back to whatever is
+    # in .env, preserving pre-existing behavior.
+    selected_model = model.strip() if model and model.strip() else base_config.fireworks_model
+    return replace(
+        base_config,
+        use_mock=bool(use_mock),
+        fireworks_model=selected_model,
+    )
 
 
 @app.get("/health")
@@ -70,11 +78,15 @@ def health() -> dict[str, object]:
 async def caption_video(
     video: UploadFile = File(...),
     use_mock: bool = Form(False),
+    model: str | None = Form(None),
+    auto_segment: bool = Form(False),
+    segment_seconds: int = Form(60),
+    max_workers: int = Form(2),
 ) -> dict[str, object]:
     if not video.filename:
         raise HTTPException(status_code=400, detail="Missing video filename.")
 
-    config = _build_request_config(use_mock=use_mock)
+    config = _build_request_config(use_mock=use_mock, model=model)
     config.ensure_dirs()
 
     request_id = uuid4().hex[:12]
@@ -86,6 +98,38 @@ async def caption_video(
         raise HTTPException(status_code=400, detail="Uploaded video is empty.")
 
     video_path.write_bytes(contents)
+
+    # P1: optional long-video auto-segmentation. We only segment when the
+    # caller opts in AND the uploaded video is genuinely longer than the
+    # short-video target range. Short videos always fall back to the
+    # verified single-pipeline path.
+    if auto_segment:
+        # Clamp before any pipeline call so the API can't be tricked into
+        # spawning too many workers or writing extremely tiny segments.
+        clamped_segment_seconds = min(max(30, int(segment_seconds)), 120)
+        clamped_max_workers = min(max(1, int(max_workers)), 3)
+
+        try:
+            metadata = read_video_metadata(video_path)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        duration = metadata.duration_seconds
+
+        if duration is not None and duration > config.max_video_seconds:
+            segmented_output = config.output_dir / f"segmented_{request_id}"
+            try:
+                result = run_segmented_video(
+                    config,
+                    video_path,
+                    segmented_output,
+                    segment_seconds=clamped_segment_seconds,
+                    max_workers=clamped_max_workers,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+            result["request_id"] = request_id
+            return result
 
     try:
         result = VidTonePipeline(config).run(video_path)

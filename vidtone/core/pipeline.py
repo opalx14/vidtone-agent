@@ -97,6 +97,8 @@ class VidTonePipeline:
             "project": "VidTone Agent",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "mode": "mock" if not self.config.can_call_fireworks else "fireworks",
+            "model": self.config.fireworks_model,
+            "vision_model": self.config.fireworks_vision_model,
             "video": metadata.to_dict(),
             "warnings": warnings,
             "keyframes": keyframes,
