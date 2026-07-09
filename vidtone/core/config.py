@@ -34,6 +34,7 @@ class AppConfig:
     fireworks_api_key: str | None
     fireworks_model: str | None
     fireworks_vision_model: str | None
+    fireworks_account_id: str
     fireworks_base_url: str
     max_retries: int
     min_video_seconds: int
@@ -54,6 +55,7 @@ class AppConfig:
             fireworks_api_key=os.getenv("FIREWORKS_API_KEY") or None,
             fireworks_model=os.getenv("FIREWORKS_MODEL") or None,
             fireworks_vision_model=os.getenv("FIREWORKS_VISION_MODEL") or None,
+            fireworks_account_id=os.getenv("FIREWORKS_ACCOUNT_ID", "fireworks"),
             fireworks_base_url=os.getenv(
                 "FIREWORKS_BASE_URL",
                 "https://api.fireworks.ai/inference/v1/chat/completions",

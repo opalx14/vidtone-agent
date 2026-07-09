@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
+import requests
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -24,6 +25,21 @@ WEB_PORT = 5179
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = REPO_ROOT / "apps" / "web" / "dist"
 FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+
+FALLBACK_FIREWORKS_MODELS: list[dict[str, object]] = [
+    {
+        "id": "accounts/fireworks/models/gpt-oss-120b",
+        "name": "accounts/fireworks/models/gpt-oss-120b",
+        "display_name": "gpt-oss-120b (verified)",
+        "source": "fallback",
+    },
+    {
+        "id": "accounts/fireworks/models/gpt-oss-20b",
+        "name": "accounts/fireworks/models/gpt-oss-20b",
+        "display_name": "gpt-oss-20b",
+        "source": "fallback",
+    },
+]
 
 app = FastAPI(
     title="VidTone Agent API",
@@ -71,6 +87,121 @@ def health() -> dict[str, object]:
         "api_port": API_PORT,
         "web_port": WEB_PORT,
         "mode": "fireworks" if config.can_call_fireworks else "mock-ready",
+    }
+
+
+def _normalize_model_item(item: object) -> dict[str, object] | None:
+    if not isinstance(item, dict):
+        return None
+
+    raw_name = (
+        item.get("name")
+        or item.get("id")
+        or item.get("model")
+        or item.get("model_id")
+    )
+    if not raw_name:
+        return None
+
+    name = str(raw_name)
+    if name.startswith("models/"):
+        name = f"accounts/fireworks/{name}"
+    elif not name.startswith("accounts/") and "/models/" not in name:
+        name = f"accounts/fireworks/models/{name}"
+
+    display_name = (
+        item.get("displayName")
+        or item.get("display_name")
+        or item.get("title")
+        or name.rsplit("/", 1)[-1]
+    )
+
+    return {
+        "id": name,
+        "name": name,
+        "display_name": str(display_name),
+        "context_length": item.get("contextLength") or item.get("context_length"),
+        "supports_image_input": item.get("supportsImageInput") or item.get("supports_image_input"),
+        "supports_tools": item.get("supportsTools") or item.get("supports_tools"),
+        "supports_serverless": item.get("supportsServerless") or item.get("supports_serverless"),
+        "source": "fireworks",
+    }
+
+
+def _dedupe_models(models: list[dict[str, object]]) -> list[dict[str, object]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, object]] = []
+    for model in models:
+        name = str(model.get("name") or model.get("id") or "")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        deduped.append(model)
+    return deduped
+
+
+def _extract_models(payload: object) -> list[dict[str, object]]:
+    if isinstance(payload, list):
+        raw_models = payload
+    elif isinstance(payload, dict):
+        raw_models = (
+            payload.get("models")
+            or payload.get("data")
+            or payload.get("items")
+            or []
+        )
+    else:
+        raw_models = []
+
+    models = [_normalize_model_item(item) for item in raw_models]
+    return [model for model in models if model is not None]
+
+
+def _fetch_fireworks_models(config: AppConfig) -> tuple[list[dict[str, object]], str]:
+    if not config.fireworks_api_key:
+        return list(FALLBACK_FIREWORKS_MODELS), "fallback:no_api_key"
+
+    headers = {"Authorization": f"Bearer {config.fireworks_api_key}"}
+    account_id = config.fireworks_account_id or "fireworks"
+    urls = [
+        "https://api.fireworks.ai/inference/v1/models",
+        f"https://api.fireworks.ai/v1/accounts/{account_id}/models",
+    ]
+    if account_id != "fireworks":
+        urls.append("https://api.fireworks.ai/v1/accounts/fireworks/models")
+
+    last_error = ""
+    for url in urls:
+        try:
+            response = requests.get(url, headers=headers, timeout=20)
+            response.raise_for_status()
+            models = _extract_models(response.json())
+            if models:
+                fallback_names = {str(item["name"]) for item in FALLBACK_FIREWORKS_MODELS}
+                merged = models + [
+                    item for item in FALLBACK_FIREWORKS_MODELS
+                    if str(item["name"]) not in fallback_names or str(item["name"]) not in {str(model["name"]) for model in models}
+                ]
+                return _dedupe_models(merged), url
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            continue
+        except ValueError as exc:
+            last_error = f"invalid JSON: {exc}"
+            continue
+
+    return list(FALLBACK_FIREWORKS_MODELS), f"fallback:{last_error or 'no_models'}"
+
+
+@app.get("/api/models")
+def list_models() -> dict[str, object]:
+    config = AppConfig.from_env()
+    models, source = _fetch_fireworks_models(config)
+    return {
+        "models": models,
+        "source": source,
+        "default_model": config.fireworks_model or "accounts/fireworks/models/gpt-oss-120b",
+        "account_id": config.fireworks_account_id,
     }
 
 

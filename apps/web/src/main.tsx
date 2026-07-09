@@ -1,15 +1,38 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Download, FileVideo, Loader2, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
+import { Download, FileVideo, Loader2, RefreshCcw, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
 import './styles.css';
 
 const DEFAULT_MODEL = 'accounts/fireworks/models/gpt-oss-120b';
+const CUSTOM_MODEL = 'custom';
 
-const MODEL_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'accounts/fireworks/models/gpt-oss-120b', label: 'gpt-oss-120b (verified)' },
-  { value: 'accounts/fireworks/models/gpt-oss-20b', label: 'gpt-oss-20b' },
-  { value: 'custom', label: 'Custom Fireworks slug…' },
+const FALLBACK_MODELS: ReadonlyArray<ModelOption> = [
+  { value: 'accounts/fireworks/models/gpt-oss-120b', label: 'gpt-oss-120b (verified)', source: 'fallback' },
+  { value: 'accounts/fireworks/models/gpt-oss-20b', label: 'gpt-oss-20b', source: 'fallback' },
 ];
+
+type ModelOption = {
+  value: string;
+  label: string;
+  source?: string;
+  contextLength?: number | null;
+};
+
+type ApiModel = {
+  id?: string;
+  name?: string;
+  display_name?: string;
+  displayName?: string;
+  context_length?: number | null;
+  contextLength?: number | null;
+  source?: string;
+};
+
+type ModelsResponse = {
+  models: ApiModel[];
+  source?: string;
+  default_model?: string;
+};
 
 type CaptionItem = {
   text: string;
@@ -49,6 +72,47 @@ const styleLabels: Record<string, string> = {
   humorous_non_tech: 'Humorous Non-Tech',
 };
 
+function shortModelName(model: string) {
+  return model.split('/').filter(Boolean).pop() ?? model;
+}
+
+function normalizeApiModel(model: ApiModel): ModelOption | null {
+  const rawValue = model.name ?? model.id;
+  if (!rawValue) return null;
+
+  const value = rawValue.startsWith('accounts/')
+    ? rawValue
+    : rawValue.startsWith('models/')
+      ? `accounts/fireworks/${rawValue}`
+      : rawValue.includes('/models/')
+        ? rawValue
+        : `accounts/fireworks/models/${rawValue}`;
+
+  const rawLabel = model.display_name ?? model.displayName ?? shortModelName(value);
+  const contextLength = model.context_length ?? model.contextLength ?? null;
+  const label = contextLength
+    ? `${rawLabel} · ${Math.round(contextLength / 1000)}k ctx`
+    : rawLabel;
+
+  return {
+    value,
+    label,
+    source: model.source,
+    contextLength,
+  };
+}
+
+function mergeModelOptions(models: ModelOption[]) {
+  const seen = new Set<string>();
+  const merged: ModelOption[] = [];
+  for (const model of models) {
+    if (!model.value || seen.has(model.value)) continue;
+    seen.add(model.value);
+    merged.push(model);
+  }
+  return merged;
+}
+
 function ScoreBadge({ label, value }: { label: string; value: number }) {
   const tone = value >= 8 ? 'good' : value >= 6 ? 'warn' : 'bad';
   return <span className={`score score-${tone}`}>{label}: {value}/10</span>;
@@ -59,11 +123,49 @@ function App() {
   const [useMock, setUseMock] = React.useState(false);
   const [modelPreset, setModelPreset] = React.useState<string>(DEFAULT_MODEL);
   const [customModel, setCustomModel] = React.useState<string>('');
+  const [modelOptions, setModelOptions] = React.useState<ModelOption[]>([...FALLBACK_MODELS]);
+  const [modelSource, setModelSource] = React.useState<string>('fallback');
+  const [isLoadingModels, setIsLoadingModels] = React.useState(false);
+  const [modelLoadError, setModelLoadError] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
   const [result, setResult] = React.useState<CaptionResult | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
-  const selectedModel = modelPreset === 'custom' ? customModel.trim() : modelPreset;
+  const selectedModel = modelPreset === CUSTOM_MODEL ? customModel.trim() : modelPreset;
+
+  async function loadModels() {
+    setIsLoadingModels(true);
+    setModelLoadError(null);
+    try {
+      const response = await fetch('/api/models');
+      if (!response.ok) {
+        throw new Error(`Model API failed with ${response.status}`);
+      }
+      const payload = (await response.json()) as ModelsResponse;
+      const loadedModels = (payload.models ?? [])
+        .map(normalizeApiModel)
+        .filter((model): model is ModelOption => model !== null);
+      const mergedModels = mergeModelOptions([...loadedModels, ...FALLBACK_MODELS]);
+      setModelOptions(mergedModels.length > 0 ? mergedModels : [...FALLBACK_MODELS]);
+      setModelSource(payload.source ?? 'api');
+
+      const defaultModel = payload.default_model || DEFAULT_MODEL;
+      if (defaultModel && modelPreset === DEFAULT_MODEL && mergedModels.some((item) => item.value === defaultModel)) {
+        setModelPreset(defaultModel);
+      }
+    } catch (err) {
+      setModelOptions([...FALLBACK_MODELS]);
+      setModelSource('fallback');
+      setModelLoadError(err instanceof Error ? err.message : 'Could not load Fireworks models');
+    } finally {
+      setIsLoadingModels(false);
+    }
+  }
+
+  React.useEffect(() => {
+    void loadModels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function runCaption() {
     if (!file) {
@@ -129,13 +231,23 @@ function App() {
             id="model-preset"
             value={modelPreset}
             onChange={(event) => setModelPreset(event.target.value)}
-            disabled={isRunning}
+            disabled={isRunning || isLoadingModels}
           >
-            {MODEL_PRESETS.map((preset) => (
-              <option key={preset.value} value={preset.value}>{preset.label}</option>
+            {modelOptions.map((model) => (
+              <option key={model.value} value={model.value}>{model.label}</option>
             ))}
+            <option value={CUSTOM_MODEL}>Custom Fireworks slug…</option>
           </select>
-          {modelPreset === 'custom' && (
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => void loadModels()}
+            disabled={isRunning || isLoadingModels}
+          >
+            {isLoadingModels ? <Loader2 className="spin" size={16} /> : <RefreshCcw size={16} />}
+            {isLoadingModels ? 'Loading models...' : 'Reload models'}
+          </button>
+          {modelPreset === CUSTOM_MODEL && (
             <input
               type="text"
               placeholder="accounts/fireworks/models/..."
@@ -146,7 +258,11 @@ function App() {
               autoComplete="off"
             />
           )}
-          <p className="hint">Model access depends on your Fireworks account.</p>
+          <p className="hint">
+            {modelLoadError
+              ? `Could not load Fireworks model list (${modelLoadError}). Using fallback presets + custom slug.`
+              : `Loaded ${modelOptions.length} model${modelOptions.length === 1 ? '' : 's'} from ${modelSource}. Model access depends on your Fireworks account.`}
+          </p>
         </div>
 
         <div className="controls">

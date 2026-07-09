@@ -18,7 +18,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -185,6 +186,7 @@ h2 {
 }
 
 .primary,
+.secondary,
 .export-actions a {
   display: inline-flex;
   align-items: center;
@@ -192,15 +194,28 @@ h2 {
   gap: 9px;
   border: 0;
   border-radius: 999px;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa);
-  color: #020617;
   font-weight: 800;
-  padding: 13px 18px;
   text-decoration: none;
   cursor: pointer;
 }
 
-.primary:disabled {
+.primary,
+.export-actions a {
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  color: #020617;
+  padding: 13px 18px;
+}
+
+.secondary {
+  border: 1px solid rgba(147, 197, 253, 0.35);
+  background: rgba(15, 23, 42, 0.9);
+  color: #bfdbfe;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+.primary:disabled,
+.secondary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
