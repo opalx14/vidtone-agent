@@ -1,0 +1,11 @@
+streamlit>=1.36.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+python-multipart>=0.0.9
+aiofiles>=24.1.0
+httpx2>=0.0.1
+pandas>=2.2.0
+python-dotenv>=1.0.1
+requests>=2.32.0
+opencv-python>=4.10.0
+moviepy>=1.0.3

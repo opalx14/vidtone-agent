@@ -1,0 +1,17 @@
+services:
+  vidtone:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vidtone-agent
+    ports:
+      - "8710:8710"
+    env_file:
+      - .env
+    volumes:
+      # Persist generated outputs and uploaded videos across container runs.
+      - ./outputs:/app/outputs
+      - ./uploads:/app/uploads
+      # Sample video is useful for judges who want to reproduce the demo.
+      - ./samples:/app/samples
+    restart: unless-stopped

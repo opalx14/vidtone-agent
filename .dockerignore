@@ -1,0 +1,48 @@
+# Version control / IDE
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+.DS_Store
+
+# Local Python virtualenv and build artifacts
+.venv
+venv
+env
+__pycache__
+**/__pycache__
+*.py[cod]
+*.egg-info
+vidtone_agent.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+
+# Local secrets. Values are injected at runtime via docker-compose env_file
+# or platform secrets (Hugging Face Spaces, Fly, Render, ...).
+.env
+.env.local
+
+# Frontend
+apps/web/node_modules
+apps/web/dist
+apps/web/.vite
+apps/web/*.tsbuildinfo
+
+# Runtime artifacts that must not leak into the image.
+outputs/*
+!outputs/.gitkeep
+uploads/*
+!uploads/.gitkeep
+
+# Large media samples: rebuild locally with `vidtone make-sample` if needed.
+samples/*.mp4
+samples/*.mov
+samples/*.webm
+samples/*.mkv
+samples/*.avi
+
+# Docs and screenshots do not need to be in the runtime image.
+docs

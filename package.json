@@ -1,0 +1,7 @@
+{
+  "name": "vidtone-agent-root",
+  "private": true,
+  "scripts": {
+    "dev": "bash scripts/dev.sh"
+  }
+}
