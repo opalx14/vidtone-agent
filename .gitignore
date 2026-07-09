@@ -48,3 +48,6 @@ uploads/
 .DS_Store
 .idea/
 .vscode/
+
+# Internal planning specs — not part of the shipped repo
+.agents/spec/
