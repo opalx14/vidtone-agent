@@ -76,6 +76,17 @@ function shortModelName(model: string) {
   return model.split('/').filter(Boolean).pop() ?? model;
 }
 
+function formatModelSource(source: string): string {
+  if (!source) return 'Fireworks catalog';
+  if (source.startsWith('fallback:no_api_key')) return 'fallback presets · no API key';
+  if (source.startsWith('fallback:')) return 'fallback presets · catalog unreachable';
+  if (source === 'fallback') return 'fallback presets';
+  if (source.startsWith('account:')) return 'Fireworks catalog';
+  if (source.includes('inference/v1/models')) return 'Fireworks serverless catalog';
+  if (source.includes('/accounts/')) return 'Fireworks account catalog';
+  return source;
+}
+
 function normalizeApiModel(model: ApiModel): ModelOption | null {
   const rawValue = model.name ?? model.id;
   if (!rawValue) return null;
@@ -226,31 +237,39 @@ function App() {
         {file && <video className="preview" src={URL.createObjectURL(file)} controls />}
 
         <div className="model-selector">
-          <label htmlFor="model-preset">Model</label>
-          <select
-            id="model-preset"
-            value={modelPreset}
-            onChange={(event) => setModelPreset(event.target.value)}
-            disabled={isRunning || isLoadingModels}
-          >
-            {modelOptions.map((model) => (
-              <option key={model.value} value={model.value}>{model.label}</option>
-            ))}
-            <option value={CUSTOM_MODEL}>Custom Fireworks slug…</option>
-          </select>
-          <button
-            className="secondary"
-            type="button"
-            onClick={() => void loadModels()}
-            disabled={isRunning || isLoadingModels}
-          >
-            {isLoadingModels ? <Loader2 className="spin" size={16} /> : <RefreshCcw size={16} />}
-            {isLoadingModels ? 'Loading models...' : 'Reload models'}
-          </button>
+          <div className="model-selector-header">
+            <label htmlFor="model-preset" className="model-selector-label">Model</label>
+            <button
+              className="link-button"
+              type="button"
+              onClick={() => void loadModels()}
+              disabled={isRunning || isLoadingModels}
+              aria-label="Reload Fireworks model list"
+            >
+              {isLoadingModels ? <Loader2 className="spin" size={13} /> : <RefreshCcw size={13} />}
+              <span>{isLoadingModels ? 'Loading' : 'Reload'}</span>
+            </button>
+          </div>
+
+          <div className="select-wrap">
+            <select
+              id="model-preset"
+              value={modelPreset}
+              onChange={(event) => setModelPreset(event.target.value)}
+              disabled={isRunning || isLoadingModels}
+            >
+              {modelOptions.map((model) => (
+                <option key={model.value} value={model.value}>{model.label}</option>
+              ))}
+              <option value={CUSTOM_MODEL}>Custom Fireworks slug…</option>
+            </select>
+          </div>
+
           {modelPreset === CUSTOM_MODEL && (
             <input
+              className="model-custom-input"
               type="text"
-              placeholder="accounts/fireworks/models/..."
+              placeholder="accounts/fireworks/models/…"
               value={customModel}
               onChange={(event) => setCustomModel(event.target.value)}
               disabled={isRunning}
@@ -258,21 +277,33 @@ function App() {
               autoComplete="off"
             />
           )}
-          <p className="hint">
-            {modelLoadError
-              ? `Could not load Fireworks model list (${modelLoadError}). Using fallback presets + custom slug.`
-              : `Loaded ${modelOptions.length} model${modelOptions.length === 1 ? '' : 's'} from ${modelSource}. Model access depends on your Fireworks account.`}
-          </p>
+
+          <div className={`model-selector-status ${modelLoadError ? 'is-error' : 'is-ok'}`}>
+            <span className="model-status-dot" aria-hidden="true" />
+            {modelLoadError ? (
+              <span className="model-status-text">
+                Fallback presets active · {modelLoadError}
+              </span>
+            ) : (
+              <>
+                <span className="model-status-text">
+                  {modelOptions.length} model{modelOptions.length === 1 ? '' : 's'} · {formatModelSource(modelSource)}
+                </span>
+                <span className="model-status-sep" aria-hidden="true">·</span>
+                <span className="model-status-hint">Access depends on your Fireworks account</span>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="controls">
           <label className="toggle">
             <input type="checkbox" checked={useMock} onChange={(event) => setUseMock(event.target.checked)} disabled={isRunning} />
-            Mock mode
+            <span>Mock mode</span>
           </label>
           <button className="primary" onClick={runCaption} disabled={!file || isRunning}>
             {isRunning ? <Loader2 className="spin" size={18} /> : <Wand2 size={18} />}
-            {isRunning ? 'Running pipeline...' : 'Generate captions'}
+            <span>{isRunning ? 'Running pipeline…' : 'Generate captions'}</span>
           </button>
         </div>
       </section>
